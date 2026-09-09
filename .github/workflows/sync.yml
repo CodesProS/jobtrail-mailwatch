@@ -1,0 +1,19 @@
+name: mailwatch sync
+
+# Polls Gmail via the deployed sidecar. Free: GitHub cron + one curl.
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # every 15 minutes (GitHub may delay under load)
+  workflow_dispatch:           # manual "Run workflow" button
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger sync
+        run: |
+          code=$(curl -s -o /tmp/body -w '%{http_code}' -X POST \
+            -H "X-Sync-Secret: ${{ secrets.SYNC_SECRET }}" \
+            "${{ secrets.MAILWATCH_URL }}/sync")
+          echo "HTTP $code"; cat /tmp/body; echo
+          test "$code" = "200"
