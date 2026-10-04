@@ -19,17 +19,41 @@ function jwtExp(token) {
   }
 }
 
+// POST /auth/login with retry on 429 (rate limiting seen from Render's network).
+// Logs response headers on failure so we can tell which layer answered.
+async function login(email, password) {
+  const delays = [2000, 5000, 10000];
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const raw = await res.text();
+    let data = {};
+    try { data = JSON.parse(raw); } catch { /* non-JSON body */ }
+
+    if (res.ok && data.token) return data;
+
+    if (res.status === 429 && attempt < delays.length) {
+      const retryAfter = Number(res.headers.get('retry-after'));
+      const wait = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 15000) : delays[attempt];
+      console.warn(`[jobtrail] login 429, retrying in ${wait}ms (attempt ${attempt + 1})`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+
+    console.error(
+      `[jobtrail] login failed: ${res.status} server=${res.headers.get('server')} ` +
+      `retry-after=${res.headers.get('retry-after')} cf-ray=${res.headers.get('cf-ray')} body=${raw.slice(0, 200)}`
+    );
+    throw new Error(data.error || `JobTrail login failed (${res.status})${res.status === 429 ? ' — rate limited, try again in a few minutes' : ''}`);
+  }
+}
+
 export async function saveCredentials(email, password) {
   // Verify they work before storing.
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.token) {
-    throw new Error(data.error || `JobTrail login failed (${res.status})`);
-  }
+  const data = await login(email, password);
   await configRepo.update({
     jobtrail_email: email,
     jobtrail_password_enc: encrypt(password),
@@ -48,13 +72,7 @@ async function getToken() {
     return cfg.jobtrail_token_cache;
   }
 
-  const res = await fetch(`${BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: cfg.jobtrail_email, password: decrypt(cfg.jobtrail_password_enc) }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.token) throw new Error(data.error || `JobTrail login failed (${res.status})`);
+  const data = await login(cfg.jobtrail_email, decrypt(cfg.jobtrail_password_enc));
 
   await configRepo.update({ jobtrail_token_cache: data.token, jobtrail_token_exp: jwtExp(data.token) });
   return data.token;
