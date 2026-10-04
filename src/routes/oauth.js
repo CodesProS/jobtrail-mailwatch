@@ -43,10 +43,14 @@ router.get('/callback', async (req, res, next) => {
     const access = await accessTokenFromRefresh(tokens.refresh_token);
     const profile = await getProfile(access);
 
+    // First connection starts the clock now (no history is read). On a
+    // reconnect, keep the existing scan point so mail from the gap isn't skipped.
+    const existing = await configRepo.get();
     await configRepo.update({
       gmail_email: profile.emailAddress,
       gmail_refresh_token_enc: encrypt(tokens.refresh_token),
       gmail_connected_at: new Date().toISOString(),
+      ...(Number(existing?.last_message_ts) ? {} : { last_message_ts: Math.floor(Date.now() / 1000) }),
     });
 
     res

@@ -43,11 +43,65 @@ Rules:
 - confidence is your certainty in event_type, 0.0 to 1.0.
 - If is_job_related is false, set event_type to "other" and confidence to 0.0.`;
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Errors worth retrying later (rate limit, 5xx, network) are flagged so the
+// sync can defer the email instead of recording a permanent failure.
+function transientError(message) {
+  const err = new Error(message);
+  err.transient = true;
+  return err;
+}
+
+// Groq says "Please try again in 5.52s" and/or sends a Retry-After header.
+function retryWaitMs(res, message) {
+  const header = Number(res.headers.get('retry-after'));
+  if (Number.isFinite(header) && header > 0) return Math.ceil(header * 1000) + 250;
+  const m = /try again in ([\d.]+)\s*(ms|s)/i.exec(message || '');
+  if (m) return Math.ceil(m[2].toLowerCase() === 'ms' ? Number(m[1]) : Number(m[1]) * 1000) + 500;
+  return 5000;
+}
+
+const MAX_RETRIES = 2;
+const MAX_WAIT_MS = 15000; // never hold a request longer than this for one retry
+
+async function callGroq(payload) {
+  for (let attempt = 0; ; attempt++) {
+    let res;
+    try {
+      res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${env.GROQ_API_KEY}`,
+        },
+        body: payload,
+      });
+    } catch (err) {
+      throw transientError(`Groq network error: ${err.message}`);
+    }
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && !data.error) return data;
+
+    const message = data.error?.message || `Groq HTTP ${res.status}`;
+    if (res.status === 429 || res.status >= 500) {
+      const wait = retryWaitMs(res, message);
+      if (attempt < MAX_RETRIES && wait <= MAX_WAIT_MS) {
+        await sleep(wait);
+        continue;
+      }
+      throw transientError(message);
+    }
+    throw new Error(message);
+  }
+}
+
 export async function classifyEmail({ fromName, from, subject, body }) {
   const userMsg =
     `From: ${fromName} <${from}>\n` +
     `Subject: ${subject}\n\n` +
-    `--- EMAIL BODY ---\n${(body || '').slice(0, 2500)}`;
+    `--- EMAIL BODY ---\n${(body || '').slice(0, 1500)}`;
 
   const payload = JSON.stringify({
     model: env.GROQ_MODEL,
@@ -59,17 +113,7 @@ export async function classifyEmail({ fromName, from, subject, body }) {
     temperature: 0.1,
   });
 
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.GROQ_API_KEY}`,
-    },
-    body: payload,
-  });
-
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message || 'Groq API error');
+  const data = await callGroq(payload);
 
   const content = data.choices?.[0]?.message?.content || '';
   const cleaned = content

@@ -12,6 +12,15 @@ const detectionRepo = {
     return new Set(res.rows.map((r) => r.gmail_msg_id));
   },
 
+  // Earlier versions stored Groq rate-limit failures as permanent 'error' rows,
+  // which hid those emails from every future sync. Remove them so they retry.
+  async deleteRateLimitErrors() {
+    const res = await query(
+      `DELETE FROM mw_detections WHERE state = 'error' AND note ILIKE 'rate limit%'`
+    );
+    return res.rowCount;
+  },
+
   async insert(d) {
     const res = await query(
       `INSERT INTO mw_detections

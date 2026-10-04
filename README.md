@@ -71,7 +71,9 @@ annual third-party security assessment — not needed for personal use.
 | `JOBTRAIL_API_URL` | `https://jobtrail-en88.onrender.com` |
 | `SYNC_SECRET` | random string — gates `POST /sync` |
 | `REVIEW_KEY` | random string — gates the `/review` page + setup |
-| `GMAIL_QUERY` | Gmail search filter; narrow to `label:jobs` once you have one |
+| `GMAIL_QUERY` | Gmail search filter (default `-in:chats -category:promotions`); narrow to `label:jobs` once you have one. Don't add a time filter — see *Scan window* |
+| `LLM_PER_RUN` | max AI classifications per sync (default `5`, sized for Groq's free ~8k tokens/min) |
+| `IGNORE_SENDERS` | comma-separated From substrings skipped with no AI call (job-alert digests etc.); sensible default list |
 
 ### 4. Run it
 
@@ -85,7 +87,7 @@ Then, in the review page:
    AES-256-GCM encrypted; used only to mint a login token and read/patch jobs.
 2. **Connect Gmail** — click through Google sign-in (you'll see an "unverified
    app" warning — that's expected for a Testing-mode app; continue).
-3. **Sync now** — pulls recent mail and populates the queue.
+3. **Sync now** — the *first* sync only starts the clock (no history is read). After that, it pulls mail received since the previous sync and populates the queue.
 
 ### 5. Deploy (Render, same as JobTrail)
 
@@ -130,6 +132,18 @@ token overlap (0.15). Best score ≥ 0.30 → **needs review** with that app
 pre-selected; below that → **no match** (still listed, pick the app manually).
 A backwards move (e.g. an "applied" ack arriving after you're at "interview")
 is flagged but not blocked — you decide.
+
+### Scan window
+
+Mailwatch never re-reads old mail. The first run just records "now". Every later
+run scans only mail received **after the previous successful run began**
+(`mw_config.last_message_ts`, minus a 60 s margin for clock skew). A failed run
+(Gmail down, etc.) doesn't move the clock, so nothing is skipped.
+
+If a run is cut short — the per-run AI cap (`LLM_PER_RUN`) or a Groq rate limit —
+the leftover emails are *deferred*: nothing is written for them and the clock
+only advances to the last email fully handled, so the next run resumes right
+there. The Sync button reports how many are waiting.
 
 Idempotent: every Gmail message id is stored once (`mw_detections.gmail_msg_id`
 is `UNIQUE`), so overlapping scans are harmless.

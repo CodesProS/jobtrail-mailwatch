@@ -27,7 +27,17 @@ const env = {
   SYNC_SECRET:   required('SYNC_SECRET'),
   REVIEW_KEY:    required('REVIEW_KEY'),
 
-  GMAIL_QUERY:   optional('GMAIL_QUERY', 'newer_than:3d -in:chats -category:promotions'),
+  GMAIL_QUERY:   optional('GMAIL_QUERY', '-in:chats -category:promotions'),
+
+  // Max AI classifications per sync run (Groq free tier is ~8k tokens/min).
+  LLM_PER_RUN:   parseInt(optional('LLM_PER_RUN', '5'), 10),
+
+  // Comma-separated substrings of From address/domain to skip without an AI call
+  // (job-alert digests and marketing). Matched case-insensitively.
+  IGNORE_SENDERS: optional(
+    'IGNORE_SENDERS',
+    'jobalerts,jobright.ai,jobscan.co,jobs2web.com,fastweb.com,unstop.news'
+  ).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
 };
 
 env.GOOGLE_REDIRECT_URI = `${env.PUBLIC_URL}/oauth/callback`;

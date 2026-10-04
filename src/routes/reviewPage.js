@@ -189,9 +189,9 @@ document.getElementById('syncBtn').onclick = async () => {
   btn.disabled = true; btn.textContent = 'Syncing…';
   try {
     const r = await api('/review/api/sync', { method:'POST', headers:H, body:'{}' });
-    btn.textContent = 'Synced (' + (r.new ?? 0) + ' new)';
+    btn.textContent = 'Synced (' + (r.new ?? 0) + ' new' + (r.deferred ? ', ' + r.deferred + ' waiting — sync again in a minute' : '') + ')';
   } catch (e) { btn.textContent = 'Sync failed'; alert(e.message); }
-  setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 2500);
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Sync now'; }, 6000);
   refresh();
 };
 
