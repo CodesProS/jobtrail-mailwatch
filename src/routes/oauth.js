@@ -4,7 +4,7 @@ import { Router } from 'express';
 import crypto from 'crypto';
 import env from '../config/env.js';
 import configRepo from '../repositories/configRepo.js';
-import { encrypt } from '../lib/crypto.js';
+import { encrypt, safeEqual } from '../lib/crypto.js';
 import { consentUrl, exchangeCode, accessTokenFromRefresh, getProfile } from '../services/gmail.js';
 
 const router = Router();
@@ -15,7 +15,7 @@ function sign(value) {
 
 // GET /oauth/start?key=REVIEW_KEY  -> redirect to Google consent
 router.get('/start', (req, res) => {
-  if (req.query.key !== env.REVIEW_KEY) {
+  if (!safeEqual(req.query.key, env.REVIEW_KEY)) {
     return res.status(401).send('Add ?key=REVIEW_KEY to this URL.');
   }
   const nonce = crypto.randomBytes(8).toString('hex');
@@ -55,7 +55,7 @@ router.get('/callback', async (req, res, next) => {
 
     res
       .status(200)
-      .send(`<p>Gmail connected as <b>${profile.emailAddress}</b>. You can close this tab.</p><p><a href="/review?key=${env.REVIEW_KEY}">Open review queue</a></p>`);
+      .send(`<p>Gmail connected as <b>${profile.emailAddress}</b>. You can close this tab.</p><p><a href="/review">Open review queue</a></p>`);
   } catch (err) {
     next(err);
   }

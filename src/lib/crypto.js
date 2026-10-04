@@ -10,6 +10,19 @@ if (KEY.length !== 32) {
   throw new Error('ENC_KEY must be 64 hex characters (32 bytes)');
 }
 
+// Constant-time string comparison (for keys, codes, webhook secrets).
+export function safeEqual(a, b) {
+  const x = Buffer.from(String(a ?? ''));
+  const y = Buffer.from(String(b ?? ''));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
+}
+
+// Stable secrets derived from REVIEW_KEY so there is nothing extra to configure.
+// Rotating REVIEW_KEY rotates these too (the webhook is re-registered on boot).
+export function derive(label, length) {
+  return crypto.createHmac('sha256', env.REVIEW_KEY).update(label).digest('hex').slice(0, length);
+}
+
 export function encrypt(plaintext) {
   if (plaintext == null) return null;
   const iv = crypto.randomBytes(12);
