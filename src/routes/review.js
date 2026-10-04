@@ -130,7 +130,10 @@ router.post('/setup/jobtrail', gate, async (req, res, next) => {
     const out = await saveCredentials(email.toLowerCase().trim(), password);
     res.json({ ok: true, ...out });
   } catch (err) {
-    next(err);
+    // Surface the real reason (bad password, JobTrail down, DB error) — this
+    // route is gated by REVIEW_KEY, and the generic 500 hides what to fix.
+    console.error('[setup/jobtrail]', err.stack || err.message);
+    res.status(400).json({ error: err.message });
   }
 });
 
