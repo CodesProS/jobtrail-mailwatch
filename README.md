@@ -70,7 +70,8 @@ annual third-party security assessment — not needed for personal use.
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | from step 2 |
 | `JOBTRAIL_API_URL` | `https://jobtrail-en88.onrender.com` |
 | `SYNC_SECRET` | random string — gates `POST /sync` |
-| `REVIEW_KEY` | random string — gates the `/review` page + setup |
+| `REVIEW_KEY` | the "password" for the review page + setup. Use a long random string, or a long passphrase you can type on a phone. Keep it private |
+| `NTFY_TOPIC` | optional — set to `auto` to get phone push alerts (see *Phone alerts*) |
 | `GMAIL_QUERY` | Gmail search filter (default `-in:chats -category:promotions`); narrow to `label:jobs` once you have one. Don't add a time filter — see *Scan window* |
 | `LLM_PER_RUN` | max AI classifications per sync (default `5`, sized for Groq's free ~8k tokens/min) |
 | `IGNORE_SENDERS` | comma-separated From substrings skipped with no AI call (job-alert digests etc.); sensible default list |
@@ -78,7 +79,7 @@ annual third-party security assessment — not needed for personal use.
 ### 4. Run it
 
 ```bash
-npm run dev          # http://localhost:3000/review?key=<REVIEW_KEY>
+npm run dev          # http://localhost:3000/review   (it asks for REVIEW_KEY once)
 ```
 
 Then, in the review page:
@@ -89,7 +90,31 @@ Then, in the review page:
    app" warning — that's expected for a Testing-mode app; continue).
 3. **Sync now** — the *first* sync only starts the clock (no history is read). After that, it pulls mail received since the previous sync and populates the queue.
 
-### 5. Deploy (Render, same as JobTrail)
+### 5. Phone alerts (ntfy, free, no account)
+
+Instead of checking a website, get a push notification when emails need review:
+**"JobTrail: 2 emails need review — Stripe — Rejection, Ramp — Interview invite"**.
+Tap it and the review page opens; confirming still happens there.
+
+1. Install the **ntfy** app (iOS App Store / Google Play / F-Droid).
+2. On the server set `NTFY_TOPIC=auto` and redeploy. This derives a secret topic
+   name from `REVIEW_KEY`, so there's nothing to invent.
+3. Open the review page → the **Phone alerts** box shows the topic. Copy it,
+   open the ntfy app → **+** → paste the topic → Subscribe.
+4. Tap **Send test** on the page; your phone should buzz.
+5. Open the review page on your phone once and enter your review key (it is saved
+   in that browser; your password manager can fill it).
+
+How it behaves:
+- One notification per sync, not one per email, and never repeats an email.
+- ntfy topics aren't password-protected — anyone who learns the topic can read
+  the alerts. `auto` makes it unguessable; treat it like a password. If it leaks,
+  change `REVIEW_KEY` (that changes the topic) and re-subscribe.
+- Alerts contain only **company + event type**. Never the review key, subjects,
+  senders, or email text. The tap link is a plain `/review` URL.
+- Self-hosting ntfy? Set `NTFY_URL`. Custom topic? `NTFY_TOPIC=<long-random-string>`.
+
+### 6. Deploy (Render, same as JobTrail)
 
 - New **Web Service** from this repo, Docker runtime.
 - Add every `.env` var in the Render dashboard. Set `PUBLIC_URL` to the Render
@@ -97,7 +122,7 @@ Then, in the review page:
 - Add that same URL + `/oauth/callback` to the Google client's redirect URIs.
 - Run `npm run db:migrate` once (Render Shell, or locally against the prod DB).
 
-### 6. Schedule the sync (free)
+### 7. Schedule the sync (free)
 
 GitHub Actions cron is already wired in [`.github/workflows/sync.yml`](.github/workflows/sync.yml).
 In the repo settings → **Secrets and variables → Actions**, add:
@@ -154,10 +179,11 @@ is `UNIQUE`), so overlapping scans are harmless.
 
 | method | path | auth | purpose |
 |---|---|---|---|
-| GET | `/review?key=` | REVIEW_KEY | the UI |
+| GET | `/review` | none (page holds no data) | the UI; it asks for the key and sends it as `X-Review-Key` |
 | GET | `/oauth/start?key=` | REVIEW_KEY | begin Gmail connect |
 | GET | `/oauth/callback` | signed state | Google redirect target |
 | POST | `/sync` | `X-Sync-Secret` | run one poll (cron) |
+| POST | `/review/api/notify-test` | REVIEW_KEY | send a test phone notification |
 | POST | `/review/setup/jobtrail` | REVIEW_KEY | store JobTrail creds |
 | POST | `/review/api/detections/:id/confirm` | REVIEW_KEY | push status to JobTrail |
 | POST | `/review/api/detections/:id/dismiss` | REVIEW_KEY | drop a detection |
@@ -173,6 +199,7 @@ src/services/classifier.js   Groq classification + status map
 src/services/matcher.js      email ↔ application scoring
 src/services/jobtrail.js     JobTrail API client (login/list/patch)
 src/core/sync.js             the pipeline
+src/core/notify.js           ntfy phone alerts
 src/routes/{oauth,sync,review}.js
 src/routes/reviewPage.js     the review UI (one HTML string)
 ```

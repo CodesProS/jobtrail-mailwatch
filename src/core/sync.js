@@ -15,6 +15,7 @@ import { accessTokenFromRefresh, listMessageIds, getMessage } from '../services/
 import { classifyEmail, STATUS_RANK, TERMINAL } from '../services/classifier.js';
 import { matchEmailToJobs } from '../services/matcher.js';
 import { listJobs, isConfigured } from '../services/jobtrail.js';
+import { notifyPending } from './notify.js';
 
 // Cheap gate so we don't spend an LLM call on obvious non-job mail.
 const JOB_HINTS = /(applic|interview|recruit|screen|assessment|coding challenge|take[- ]home|hiring|candidate|position|role|offer|unfortunately|regret to inform|not moving forward|talent|hiring team|next steps|schedule a (call|time))/i;
@@ -212,6 +213,14 @@ async function doSync(trigger) {
     last_sync_at: new Date().toISOString(),
     last_sync_summary: `${new Date().toISOString()} · ${JSON.stringify(stats)}`,
   });
+
+  // Phone push (ntfy) for anything new; no-op unless NTFY_TOPIC is set.
+  // A notification failure must never fail the sync.
+  try {
+    stats.notified = (await notifyPending()).sent;
+  } catch (err) {
+    console.error('[sync] notify failed:', err.message);
+  }
 
   return { ok: true, ms: Date.now() - started, ...stats };
 }

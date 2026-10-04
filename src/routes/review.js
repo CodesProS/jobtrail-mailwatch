@@ -6,6 +6,8 @@ import configRepo from '../repositories/configRepo.js';
 import detectionRepo from '../repositories/detectionRepo.js';
 import { runSync } from '../core/sync.js';
 import { saveCredentials, updateJobStatus, listJobs, isConfigured } from '../services/jobtrail.js';
+import { safeEqual } from '../lib/crypto.js';
+import * as notify from '../core/notify.js';
 import { renderPage } from './reviewPage.js';
 
 const router = Router();
@@ -13,18 +15,18 @@ const router = Router();
 const VALID_STATUSES = ['applied', 'phone_screen', 'interview', 'offer', 'rejected', 'ghosted'];
 
 function gate(req, res, next) {
-  const key = req.query.key || req.get('X-Review-Key') || req.body?.key;
-  if (key !== env.REVIEW_KEY) return res.status(401).json({ error: 'unauthorized' });
+  const key = req.get('X-Review-Key') || req.query.key || req.body?.key;
+  if (!safeEqual(key, env.REVIEW_KEY)) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
 
 // ── UI ───────────────────────────────────────────────────────────────────────
+// The page holds no data and no secrets. It asks for the key once (or reads
+// ?key=), keeps it in the browser, and sends it as a header on every API call.
+// That lets the notification tap-link be a plain /review URL.
 
 router.get('/', (req, res) => {
-  if (req.query.key !== env.REVIEW_KEY) {
-    return res.status(401).type('html').send('<p>Add <code>?key=YOUR_REVIEW_KEY</code> to the URL.</p>');
-  }
-  res.type('html').send(renderPage(env.REVIEW_KEY));
+  res.type('html').send(renderPage());
 });
 
 // ── Status / data ────────────────────────────────────────────────────────────
@@ -41,7 +43,9 @@ router.get('/api/status', gate, async (req, res, next) => {
       last_sync_at: cfg?.last_sync_at || null,
       last_sync_summary: cfg?.last_sync_summary || null,
       counts,
-      oauth_start: `/oauth/start?key=${env.REVIEW_KEY}`,
+      notifications: notify.enabled()
+        ? { enabled: true, topic: notify.topic(), server: env.NTFY_URL }
+        : { enabled: false },
     });
   } catch (err) {
     next(err);
@@ -79,6 +83,15 @@ router.post('/api/sync', gate, async (req, res, next) => {
     res.status(result.ok ? 200 : 400).json(result);
   } catch (err) {
     next(err);
+  }
+});
+
+router.post('/api/notify-test', gate, async (req, res, next) => {
+  try {
+    await notify.sendTest();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

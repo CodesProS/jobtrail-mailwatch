@@ -27,6 +27,12 @@ const env = {
   SYNC_SECRET:   required('SYNC_SECRET'),
   REVIEW_KEY:    required('REVIEW_KEY'),
 
+  // Push notifications via ntfy (https://ntfy.sh). Optional; unset = off.
+  //   NTFY_TOPIC=auto        -> secret topic derived from REVIEW_KEY (recommended)
+  //   NTFY_TOPIC=<anything>  -> use exactly that topic (make it long and random)
+  NTFY_TOPIC:    optional('NTFY_TOPIC'),
+  NTFY_URL:      optional('NTFY_URL', 'https://ntfy.sh').replace(/\/$/, ''),
+
   GMAIL_QUERY:   optional('GMAIL_QUERY', '-in:chats -category:promotions'),
 
   // Max AI classifications per sync run (Groq free tier is ~8k tokens/min).

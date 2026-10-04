@@ -81,6 +81,23 @@ const detectionRepo = {
     return res.rows[0] || null;
   },
 
+  // Actionable detections we haven't sent a push notification for yet (oldest first).
+  async listUnnotified(limit = 10) {
+    const res = await query(
+      `SELECT * FROM mw_detections
+        WHERE state IN ('pending','no_match') AND notified_at IS NULL
+        ORDER BY received_at ASC NULLS LAST, id ASC
+        LIMIT $1`,
+      [limit]
+    );
+    return res.rows;
+  },
+
+  async markNotified(ids) {
+    if (ids.length === 0) return;
+    await query('UPDATE mw_detections SET notified_at = NOW() WHERE id = ANY($1)', [ids]);
+  },
+
   async counts() {
     const res = await query(
       `SELECT state, COUNT(*)::int AS n FROM mw_detections GROUP BY state`
